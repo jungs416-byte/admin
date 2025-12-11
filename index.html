@@ -28,6 +28,18 @@
     .meta{font-size:13px;color:#444;margin-bottom:8px}
     .muted{color:#666;font-size:13px}
     .actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+
+    /* 고정 수업 전용 색상 (index-2 와 동일하게 표시) */
+    td.cell-sports{ background:#7b5e3b !important; color:#fff; font-weight:700 } /* 책과 운동 - 갈색 */
+    td.cell-golden{ background:#6a4ba8 !important; color:#fff; font-weight:700 } /* 독서 골든벨 - 보라 */
+    td.cell-dure{ background:#9fb3d1 !important; color:#000; font-weight:700 } /* 두레별 모임 - 연파랑 */
+    td.cell-contest{ background:#4fb6ac !important; color:#fff; font-weight:700 } /* 방학과제 - 청록 */
+    td.cell-bookperson{ background:#ffb85c !important; color:#000; font-weight:700 } /* 책과사람 - 주황 */
+    td.cell-fair{ background:#f0c75e !important; color:#000; font-weight:700 } /* 만국박람회 - 골드 */
+    td.cell-worship{ background:#f4b6d7 !important; color:#000; font-weight:700 } /* 돋움예배 - 연핑크 */
+    td.cell-cleanup{ background:#bfe7c7 !important; color:#000; font-weight:700 } /* 반별 정리 - 연녹색 */
+    td.cell-fixed{ background:#e6e6e6 !important; color:#000; font-weight:700 } /* 일반 고정 fallback */
+
     @media (max-width:880px){
       .two-col{grid-template-columns:1fr}
     }
@@ -74,7 +86,7 @@
     </div>
   </div>
 
-  <div style="margin-top:12px" class="muted">참고: 시간표는 "makeTable" 페이지에서 사용한 동일한 교시/날짜 레이아웃으로 표시됩니다. registrations.course_capacity_id 값 포맷에 따라 파싱합니다.</div>
+  <div style="margin-top:12px" class="muted">참고: 시간표은 makeTable 페이지(학생 UI)의 전체 교시/날짜 레이아웃과 동일하게 확장되었습니다.</div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
@@ -84,9 +96,35 @@
     const { createClient } = window.supabase;
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 시간표 구성 상수 (makeTable과 동일한 날짜/교시 구성)
-    const DAYS = ["1/26(월)","1/27(화)","1/28(수)","1/29(목)","1/30(금)","2/2(월)","2/3(화)","2/5(목)"];
-    const PERIODS = [1,2,3,4,5];
+    // 시간표 구성 상수: index-2 와 동일한 전체 범위 (교시 1..6, 날짜들에 2/4,2/6 포함)
+    const DAYS = ["1/26(월)","1/27(화)","1/28(수)","1/29(목)","1/30(금)","2/2(월)","2/3(화)","2/4(수)","2/5(목)","2/6(금)"];
+    const PERIODS = [1,2,3,4,5,6];
+
+    // 고정 일정: index-2 의 FIXED_SCHEDULE과 동일하게 포함 -> 관리자 화면에도 표시
+    const FIXED_SCHEDULE = [
+      { day: '1/26(월)', periods: [1], text: '시작예배' },
+      { day: '1/26(월)', periods: [2], text: 'OT' },
+      { day: '1/26(월)', periods: [3], text: '두레별 모임1' },
+      { day: '1/26(월)', periods: [4], text: '책읽기' },
+
+      { day: '1/27(화)', periods: [6], text: '방학과제 예선' },
+      { day: '1/28(수)', periods: [6], text: '두레별 모임2' },
+      { day: '1/29(목)', periods: [6], text: '두레별 모임3' },
+
+      { day: '1/30(금)', periods: [5,6], text: '책과사람 (소명발표)' },
+
+      { day: '2/2(월)', periods: [5], text: '방학과제 본선' },
+
+      { day: '2/3(화)', periods: [5,6], text: '만국박람회' },
+
+      { day: '2/4(수)', periods: [1,2,3,4], text: '책과 운동(스케이트장)' },
+
+      { day: '2/5(목)', periods: [4], text: '두레별 모임4' },
+      { day: '2/5(목)', periods: [5,6], text: '독서 골든벨' },
+
+      { day: '2/6(금)', periods: [1,2], text: '돋움예배' },
+      { day: '2/6(금)', periods: [3,4], text: '반별 정리' }
+    ];
 
     // 유틸
     function escapeHtml(s){ if (s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -137,67 +175,79 @@
         courseCapacityIndex = {};
         if (data) for (const r of data) courseCapacityIndex[r.id] = r;
       } catch (err) {
-        // 테이블이 없거나 권한 문제일 수 있음 — 무시는 가능
         console.warn('course_capacity 로드 실패 (관리자 UI는 동작 가능):', err.message || err);
         courseCapacityIndex = {};
       }
     }
 
+    // 고정 이벤트 텍스트로부터 셀 클래스 반환 (index-2 규칙과 동일)
+    function fixedClassForValue(val) {
+      if (!val) return '';
+      const s = String(val);
+      if (/스케이트장|책과 운동/i.test(s)) return 'cell-sports';
+      if (/독서\s*골든벨/i.test(s)) return 'cell-golden';
+      if (/두레별/i.test(s)) return 'cell-dure';
+      if (/방학과제/i.test(s)) return 'cell-contest';
+      if (/책과사람/i.test(s)) return 'cell-bookperson';
+      if (/만국박람회/i.test(s)) return 'cell-fair';
+      if (/돋움예배/i.test(s)) return 'cell-worship';
+      if (/반별 정리/i.test(s)) return 'cell-cleanup';
+      // fallback for other fixed text
+      if (/예선|본선|소명발표|정리|예배|모임/i.test(s)) return 'cell-fixed';
+      return '';
+    }
+
     // registrations 배열에서 시간표 데이터로 변환
-    // courseId 포맷에 맞춰 파싱: "select_0126_선택1", "책 읽기_1/27(화)_1교시_승현반",
-    // "movie_1/27(화)_1-2교시", "마네_1/27(화)_3교시", "bible_1/27(화)_1교시"
+    // 이제 고정 스케줄을 먼저 채우고 registrations는 고정 항목을 덮어쓰지 않음
     function buildTableFromCourseIds(courseIds){
       // initialize empty tableData
       const tableData={};
       DAYS.forEach(d=>{ tableData[d] = {}; PERIODS.forEach(p=> tableData[d][p] = ''); });
 
+      // apply fixed schedule first
+      FIXED_SCHEDULE.forEach(entry => {
+        entry.periods.forEach(p => {
+          if (tableData[entry.day]) tableData[entry.day][p] = entry.text;
+        });
+      });
+
       for (const cid of courseIds) {
         if (!cid || typeof cid !== 'string') continue;
-        // 선택수업: 시작 with select_
+        // 선택수업: select_<day>_<subject>
         if (cid.startsWith('select_')) {
-          // format: select_<day>_<subject>
           const parts = cid.split('_');
-          // join rest as subject in case subject contains underscores
           const dayPart = parts[1] || '';
           const subject = parts.slice(2).join('_') || '선택수업';
-          // map dayPart like 0126 -> "1/26(월)" using DAYS
-          // simple mapping helper:
           const map = { '0126':"1/26(월)", '0127':"1/27(화)", '0128':"1/28(수)", '0129':"1/29(목)", '0202':"2/2(월)" };
           const day = map[dayPart] || dayPart;
-          // 선택수업은 5교시(또는 4교시인 2/2)
           if (tableData[day]) {
             const period = (day === "2/2(월)") ? 4 : 5;
-            tableData[day][period] = `선택수업(${subject})`;
+            // do not overwrite fixed entries
+            if (!tableData[day][period]) tableData[day][period] = `선택수업(${subject})`;
           }
           continue;
         }
 
+        // 책읽기 포맷
         if (cid.startsWith('책 읽기_') || cid.startsWith('책읽기_')) {
-          // possible formats:
-          // "책 읽기_1/27(화)_1교시_승현반"
-          // "책 읽기_1/27(화)_1교시_승현반" (generateCapacityIds used: `책 읽기_${day}_${period}교시_${sel.value}`)
-          // handle both with split by '_'
           const parts = cid.split('_');
-          // attempt to find a day like "1/27(화)" in parts
+          // try to locate day token
           let day='', periodNum=null, subj='';
           for (let i=1;i<parts.length;i++){
             if (DAYS.includes(parts[i])) { day = parts[i]; periodNum = Number((parts[i+1]||'').replace('교시','')) || null; subj = parts.slice(i+2).join('_'); break; }
           }
-          // fallback: try regex
           if (!day) {
             const m = cid.match(/책\s*읽기_([^_]+)_(\d+)교시_(.+)/);
             if (m) { day = m[1]; periodNum = Number(m[2]); subj = m[3]; }
           }
           if (day && periodNum && tableData[day]) {
-            tableData[day][periodNum] = `책읽기(${subj||'독서'})`;
+            if (!tableData[day][periodNum]) tableData[day][periodNum] = `책읽기(${subj||'독서'})`;
           }
           continue;
         }
 
-        if (cid.startsWith('movie_')) {
-          // e.g. movie_1/27(화)_1-2교시
-          const m = cid.match(/^movie_([^_]+)_(\d-\d교시|\d-\d교시|1-2교시|3-4교시|1-2|3-4|1-2교시)$/);
-          // more permissive:
+        // movie
+        if (cid.startsWith('movie_') || cid.startsWith('영화_')) {
           const parts = cid.split('_');
           const day = parts[1] || '';
           const blk = parts[2] || '';
@@ -209,51 +259,53 @@
             if (m2) start = Number(m2[1]);
           }
           if (tableData[day] && start) {
-            tableData[day][start] = '영화';
-            if (tableData[day][start+1] !== undefined) tableData[day][start+1] = '영화';
+            if (!tableData[day][start]) tableData[day][start] = '영화';
+            if (!tableData[day][start+1]) tableData[day][start+1] = '영화';
           }
           continue;
         }
 
+        // 마네
         if (cid.startsWith('마네_') || cid.startsWith('마네')) {
-          // 마네_1/27(화)_3교시
           const parts = cid.split('_');
           const day = parts[1] || '';
           const pRaw = parts[2] || parts.slice(-1)[0] || '';
           const m = pRaw.match(/(\d+)/);
           const p = m ? Number(m[1]) : null;
-          if (day && p && tableData[day]) tableData[day][p] = '마네';
+          if (day && p && tableData[day]) {
+            if (!tableData[day][p]) tableData[day][p] = '마네';
+          }
           continue;
         }
 
-        if (cid.startsWith('bible_') || cid.startsWith('bible')) {
-          // bible_1/27(화)_1교시
+        // bible
+        if (cid.startsWith('bible_') || cid.startsWith('bible') || cid.startsWith('성경동화_') || cid.startsWith('성경동화')) {
           const parts = cid.split('_');
           const day = parts[1] || '';
           const pRaw = parts[2] || parts.slice(-1)[0] || '';
           const m = pRaw.match(/(\d+)/);
           const p = m ? Number(m[1]) : null;
-          if (day && p && tableData[day]) tableData[day][p] = '성경동화';
+          if (day && p && tableData[day]) {
+            if (!tableData[day][p]) tableData[day][p] = '성경동화';
+          }
           continue;
         }
 
-        // Fallback: if courseCapacityIndex contains a matching id, attempt to format using its meta
+        // If courseCapacityIndex has meta, try to infer (fallback)
         if (courseCapacityIndex && courseCapacityIndex[cid]) {
           const meta = courseCapacityIndex[cid];
-          // try to infer from id or meta.name
           const id = cid;
           if (id.includes('select_')) {
             const parts = id.split('_'); const dayPart = parts[1]; const subj = parts.slice(2).join('_');
             const map = { '0126':"1/26(월)", '0127':"1/27(화)", '0128':"1/28(수)", '0129':"1/29(목)", '0202':"2/2(월)" };
             const day = map[dayPart] || dayPart;
             const period = (day === "2/2(월)") ? 4 : 5;
-            if (tableData[day]) tableData[day][period] = `선택수업(${subj})`;
+            if (tableData[day] && !tableData[day][period]) tableData[day][period] = `선택수업(${subj})`;
             continue;
           }
         }
 
-        // if unrecognized, put raw id into a spare slot: 1/26 5교시 scavenger
-        // try to attach to first empty slot
+        // 마지막 수단: 비어있는 첫 셀에 raw id 표기 (관리자 전용)
         outer:
         for (const d of DAYS) {
           for (const p of PERIODS) {
@@ -265,7 +317,7 @@
       return tableData;
     }
 
-    // 화면에 시간표 그리기 (makeTable과 비슷한 레이아웃)
+    // 화면에 시간표 그리기 (index-2 스타일 셀 클래스 적용)
     function renderTimetableHtml(cls, name, tableData){
       let html = `<h4 style="margin:6px 0">${escapeHtml(cls||'')} ${escapeHtml(name||'')} 시간표</h4>`;
       html += `<div class="table-wrapper"><table><tr><th>교시/날짜</th>`;
@@ -281,6 +333,11 @@
           else if (val === '영화') cName='cell-movie';
           else if (val === '마네') cName='cell-lounge';
           else if (val === '성경동화') cName='cell-bible';
+          else {
+            // fixed schedule classes / fallback
+            const fixedClass = fixedClassForValue(val);
+            if (fixedClass) cName = fixedClass;
+          }
           html += `<td class="${cName}">${escapeHtml(val)}</td>`;
         }
         html += `</tr>`;
@@ -300,7 +357,7 @@
       try {
         const regs = await fetchRegistrationsForStudent(studentId);
         const courseIds = regs.map(r => r.course_capacity_id);
-        // build tableData
+        // build tableData (includes fixed schedule)
         const tableData = buildTableFromCourseIds(courseIds);
         document.getElementById('timetableArea').innerHTML = renderTimetableHtml(cls, name, tableData);
 
@@ -365,16 +422,13 @@
 
     // CSV export: 현재 선택 학생 or all students shown in timetableArea
     async function exportCsv(){
-      // if a student is selected, export that one; otherwise export all students matching filters
       if (currentStudent) {
-        // fetch regs and create CSV for that student
         const regs = await fetchRegistrationsForStudent(currentStudent.studentId);
         const rows = [['student_id','class','name','registration_id','course_capacity_id']];
         for (const r of regs) rows.push([currentStudent.studentId, currentStudent.class, currentStudent.name, r.registration_id, r.course_capacity_id]);
         downloadCsv(rows, `${currentStudent.class}_${currentStudent.name}_registrations.csv`);
         return;
       }
-      // else export all students matching filter
       const cls = document.getElementById('filterClass').value.trim();
       const name = document.getElementById('filterName').value.trim();
       let q = supabase.from('students').select('student_id,class,name').order('student_id', { ascending:true });
@@ -385,7 +439,6 @@
       const ids = students.map(s=>s.student_id);
       const { data: regs, error: rErr } = await supabase.from('registrations').select('registration_id,student_id,course_capacity_id').in('student_id', ids);
       if (rErr) { alert('등록 조회 실패: ' + rErr.message); return; }
-      // map student info
       const byId = {}; for (const s of students) byId[s.student_id] = s;
       const rows = [['student_id','class','name','registration_id','course_capacity_id']];
       for (const r of regs) {
