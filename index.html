@@ -101,6 +101,7 @@
     const PERIODS = [1,2,3,4,5,6];
 
     // 고정 일정: index-2 의 FIXED_SCHEDULE과 동일하게 포함 -> 관리자 화면에도 표시
+    // 변경: 2/6(금) 항목을 요청대로 교체 (1-2 -> 반별정리, 3-4 -> 돋움예배)
     const FIXED_SCHEDULE = [
       { day: '1/26(월)', periods: [1], text: '시작예배' },
       { day: '1/26(월)', periods: [2], text: 'OT' },
@@ -122,8 +123,9 @@
       { day: '2/5(목)', periods: [4], text: '두레별 모임4' },
       { day: '2/5(목)', periods: [5,6], text: '독서 골든벨' },
 
-      { day: '2/6(금)', periods: [1,2], text: '돋움예배' },
-      { day: '2/6(금)', periods: [3,4], text: '반별 정리' }
+      // <-- 여기를 교체함: 사용자 요청에 따라 1-2: 반별정리, 3-4: 돋움예배
+      { day: '2/6(금)', periods: [1,2], text: '반별정리' },
+      { day: '2/6(금)', periods: [3,4], text: '돋움예배' }
     ];
 
     // 유틸
@@ -191,7 +193,7 @@
       if (/책과사람/i.test(s)) return 'cell-bookperson';
       if (/만국박람회/i.test(s)) return 'cell-fair';
       if (/돋움예배/i.test(s)) return 'cell-worship';
-      if (/반별 정리/i.test(s)) return 'cell-cleanup';
+      if (/반별\s*정리|반별정리/i.test(s)) return 'cell-cleanup';
       // fallback for other fixed text
       if (/예선|본선|소명발표|정리|예배|모임/i.test(s)) return 'cell-fixed';
       return '';
