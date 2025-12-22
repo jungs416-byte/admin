@@ -93,15 +93,28 @@
     // Supabase 설정 (기존과 동일)
     const SUPABASE_URL = 'https://metdfyhhcvvjmkkwyvcf.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ldGRmeWhoY3Z2am1ra3d5dmNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ5OTQzOTUsImV4cCI6MjA4MDU3MDM5NX0.vcC6tjeYU9CQlC92jJOKgcf3cR0t36g5J19pk2uQrDs';
-    const { createClient } = window.supabase;
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // createClient 가져오기 (CDN이 window.supabase에 createClient를 노출한다고 가정)
+    const { createClient } = window.supabase || {};
+
+    // 안전하게 client 생성: 전역 이름 충돌을 피하기 위해 supabaseClient 사용
+    let supabaseClient;
+    try {
+      if (!createClient) throw new Error('Supabase 라이브러리가 로드되지 않았습니다.');
+      supabaseClient = window.supabaseClient || createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      // 전역에 동일한 이름으로 다시 선언되는 것을 방지
+      window.supabaseClient = supabaseClient;
+    } catch (e) {
+      console.error('Supabase 초기화 실패:', e);
+      // 사용자에게 친절한 안내 표시
+      document.getElementById('timetableArea').innerHTML = `<div class="muted">Supabase 초기화 실패: ${e.message || e}</div>`;
+    }
 
     // 시간표 구성 상수: index-2 와 동일한 전체 범위 (교시 1..6, 날짜들에 2/4,2/6 포함)
     const DAYS = ["1/26(월)","1/27(화)","1/28(수)","1/29(목)","1/30(금)","2/2(월)","2/3(화)","2/4(수)","2/5(목)","2/6(금)"];
     const PERIODS = [1,2,3,4,5,6];
 
     // 고정 일정: index-2 의 FIXED_SCHEDULE과 동일하게 포함 -> 관리자 화면에도 표시
-    // 변경: 2/3(화)와 2/5(목)의 5-6교시 내용을 교체 (요청 반영)
     const FIXED_SCHEDULE = [
       { day: '1/26(월)', periods: [1], text: '시작예배' },
       { day: '1/26(월)', periods: [2], text: 'OT' },
@@ -116,16 +129,13 @@
 
       { day: '2/2(월)', periods: [5], text: '방학과제 본선' },
 
-      // 2/3(화): 변경 -> "독서골든벨"
       { day: '2/3(화)', periods: [5,6], text: '독서골든벨' },
 
       { day: '2/4(수)', periods: [1,2,3,4], text: '책과 운동(스케이트장)' },
 
       { day: '2/5(목)', periods: [4], text: '두레별 모임4' },
-      // 2/5(목) 5-6 교시: 변경 -> "만국박람회"
       { day: '2/5(목)', periods: [5,6], text: '만국박람회' },
 
-      // 2/6 교체: 1-2: 반별정리, 3-4: 돋움예배 (기존에 반영된 상태 유지)
       { day: '2/6(금)', periods: [1,2], text: '반별정리' },
       { day: '2/6(금)', periods: [3,4], text: '돋움예배' }
     ];
@@ -135,10 +145,11 @@
 
     // students 목록 로드 (필터 지원: class exact, name ILIKE)
     async function loadStudents(){
+      if (!supabaseClient) return;
       try {
         const cls = document.getElementById('filterClass').value.trim();
         const name = document.getElementById('filterName').value.trim();
-        let q = supabase.from('students').select('student_id,class,name').order('student_id', { ascending:true });
+        let q = supabaseClient.from('students').select('student_id,class,name').order('student_id', { ascending:true });
         if (cls) q = q.eq('class', cls);
         if (name) q = q.ilike('name', `%${name}%`);
         const { data, error } = await q;
@@ -165,7 +176,8 @@
 
     // 선택된 학생의 registrations 불러오기
     async function fetchRegistrationsForStudent(studentId){
-      const { data, error } = await supabase.from('registrations').select('registration_id,course_capacity_id').eq('student_id', studentId);
+      if (!supabaseClient) return [];
+      const { data, error } = await supabaseClient.from('registrations').select('registration_id,course_capacity_id').eq('student_id', studentId);
       if (error) throw error;
       return data || [];
     }
@@ -173,8 +185,9 @@
     // course_capacity 메타(있으면) 미리 불러오기 (id -> {id, max_capacity, ...})
     let courseCapacityIndex = null;
     async function loadCourseCapacities(){
+      if (!supabaseClient) { courseCapacityIndex = {}; return; }
       try {
-        const { data, error } = await supabase.from('course_capacity').select('*');
+        const { data, error } = await supabaseClient.from('course_capacity').select('*');
         if (error) throw error;
         courseCapacityIndex = {};
         if (data) for (const r of data) courseCapacityIndex[r.id] = r;
@@ -196,19 +209,15 @@
       if (/만국박람회/i.test(s)) return 'cell-fair';
       if (/돋움예배/i.test(s)) return 'cell-worship';
       if (/반별\s*정리|반별정리/i.test(s)) return 'cell-cleanup';
-      // fallback for other fixed text
       if (/예선|본선|소명발표|정리|예배|모임/i.test(s)) return 'cell-fixed';
       return '';
     }
 
     // registrations 배열에서 시간표 데이터로 변환
-    // 이제 고정 스케줄을 먼저 채우고 registrations는 고정 항목을 덮어쓰지 않음
     function buildTableFromCourseIds(courseIds){
-      // initialize empty tableData
       const tableData={};
       DAYS.forEach(d=>{ tableData[d] = {}; PERIODS.forEach(p=> tableData[d][p] = ''); });
 
-      // apply fixed schedule first
       FIXED_SCHEDULE.forEach(entry => {
         entry.periods.forEach(p => {
           if (tableData[entry.day]) tableData[entry.day][p] = entry.text;
@@ -217,7 +226,6 @@
 
       for (const cid of courseIds) {
         if (!cid || typeof cid !== 'string') continue;
-        // 선택수업: select_<day>_<subject>
         if (cid.startsWith('select_')) {
           const parts = cid.split('_');
           const dayPart = parts[1] || '';
@@ -226,16 +234,13 @@
           const day = map[dayPart] || dayPart;
           if (tableData[day]) {
             const period = (day === "2/2(월)") ? 4 : 5;
-            // do not overwrite fixed entries
             if (!tableData[day][period]) tableData[day][period] = `선택수업(${subject})`;
           }
           continue;
         }
 
-        // 책읽기 포맷
         if (cid.startsWith('책 읽기_') || cid.startsWith('책읽기_')) {
           const parts = cid.split('_');
-          // try to locate day token
           let day='', periodNum=null, subj='';
           for (let i=1;i<parts.length;i++){
             if (DAYS.includes(parts[i])) { day = parts[i]; periodNum = Number((parts[i+1]||'').replace('교시','')) || null; subj = parts.slice(i+2).join('_'); break; }
@@ -250,7 +255,6 @@
           continue;
         }
 
-        // movie
         if (cid.startsWith('movie_') || cid.startsWith('영화_')) {
           const parts = cid.split('_');
           const day = parts[1] || '';
@@ -269,7 +273,6 @@
           continue;
         }
 
-        // 마네
         if (cid.startsWith('마네_') || cid.startsWith('마네')) {
           const parts = cid.split('_');
           const day = parts[1] || '';
@@ -282,7 +285,6 @@
           continue;
         }
 
-        // bible
         if (cid.startsWith('bible_') || cid.startsWith('bible') || cid.startsWith('성경동화_') || cid.startsWith('성경동화')) {
           const parts = cid.split('_');
           const day = parts[1] || '';
@@ -295,7 +297,6 @@
           continue;
         }
 
-        // If courseCapacityIndex has meta, try to infer (fallback)
         if (courseCapacityIndex && courseCapacityIndex[cid]) {
           const meta = courseCapacityIndex[cid];
           const id = cid;
@@ -309,14 +310,13 @@
           }
         }
 
-        // 마지막 수단: 비어있는 첫 셀에 raw id 표기 (관리자 전용)
         outer:
         for (const d of DAYS) {
           for (const p of PERIODS) {
             if (!tableData[d][p]) { tableData[d][p] = cid; break outer; }
           }
         }
-      } // end for cid
+      }
 
       return tableData;
     }
@@ -338,7 +338,6 @@
           else if (val === '마네') cName='cell-lounge';
           else if (val === '성경동화') cName='cell-bible';
           else {
-            // fixed schedule classes / fallback
             const fixedClass = fixedClassForValue(val);
             if (fixedClass) cName = fixedClass;
           }
@@ -361,11 +360,9 @@
       try {
         const regs = await fetchRegistrationsForStudent(studentId);
         const courseIds = regs.map(r => r.course_capacity_id);
-        // build tableData (includes fixed schedule)
         const tableData = buildTableFromCourseIds(courseIds);
         document.getElementById('timetableArea').innerHTML = renderTimetableHtml(cls, name, tableData);
 
-        // registrations raw list
         let html = '<h4 style="margin:10px 0 6px">등록된 Course IDs</h4>';
         if (!courseIds || courseIds.length === 0) html += '<div class="muted">신청된 수업이 없습니다.</div>';
         else {
@@ -386,10 +383,9 @@
       document.getElementById('viewerMeta').textContent = '';
       document.getElementById('timetableArea').innerHTML = '<div class="muted">로딩 중...</div>';
       try {
-        // load students (with optional filters)
         const cls = document.getElementById('filterClass').value.trim();
         const name = document.getElementById('filterName').value.trim();
-        let q = supabase.from('students').select('student_id,class,name').order('student_id', { ascending:true });
+        let q = supabaseClient.from('students').select('student_id,class,name').order('student_id', { ascending:true });
         if (cls) q = q.eq('class', cls);
         if (name) q = q.ilike('name', `%${name}%`);
         const { data: students, error: sErr } = await q;
@@ -398,17 +394,14 @@
           document.getElementById('timetableArea').innerHTML = '<div class="muted">학생이 없습니다.</div>';
           return;
         }
-        // fetch registrations for these students in bulk
         const ids = students.map(s=>s.student_id);
-        const { data: regs, error: rErr } = await supabase.from('registrations').select('registration_id,student_id,course_capacity_id').in('student_id', ids);
+        const { data: regs, error: rErr } = await supabaseClient.from('registrations').select('registration_id,student_id,course_capacity_id').in('student_id', ids);
         if (rErr) throw rErr;
-        // group regs by student
         const regsByStudent = {};
         for (const r of regs || []) {
           if (!regsByStudent[r.student_id]) regsByStudent[r.student_id] = [];
           regsByStudent[r.student_id].push(r.course_capacity_id);
         }
-        // build HTML for all students
         let html = '';
         for (const s of students) {
           const courseIds = regsByStudent[s.student_id] || [];
@@ -426,6 +419,7 @@
 
     // CSV export: 현재 선택 학생 or all students shown in timetableArea
     async function exportCsv(){
+      if (!supabaseClient) return;
       if (currentStudent) {
         const regs = await fetchRegistrationsForStudent(currentStudent.studentId);
         const rows = [['student_id','class','name','registration_id','course_capacity_id']];
@@ -435,13 +429,13 @@
       }
       const cls = document.getElementById('filterClass').value.trim();
       const name = document.getElementById('filterName').value.trim();
-      let q = supabase.from('students').select('student_id,class,name').order('student_id', { ascending:true });
+      let q = supabaseClient.from('students').select('student_id,class,name').order('student_id', { ascending:true });
       if (cls) q = q.eq('class', cls);
       if (name) q = q.ilike('name', `%${name}%`);
       const { data: students, error: sErr } = await q;
       if (sErr) { alert('학생 조회 실패: ' + sErr.message); return; }
       const ids = students.map(s=>s.student_id);
-      const { data: regs, error: rErr } = await supabase.from('registrations').select('registration_id,student_id,course_capacity_id').in('student_id', ids);
+      const { data: regs, error: rErr } = await supabaseClient.from('registrations').select('registration_id,student_id,course_capacity_id').in('student_id', ids);
       if (rErr) { alert('등록 조회 실패: ' + rErr.message); return; }
       const byId = {}; for (const s of students) byId[s.student_id] = s;
       const rows = [['student_id','class','name','registration_id','course_capacity_id']];
@@ -468,7 +462,7 @@
       if (!currentStudent) { alert('먼저 학생을 선택하세요.'); return; }
       if (!confirm(`student_id ${currentStudent.studentId}의 registrations를 모두 삭제합니다. 계속할까요?`)) return;
       try {
-        const { error } = await supabase.from('registrations').delete().eq('student_id', currentStudent.studentId);
+        const { error } = await supabaseClient.from('registrations').delete().eq('student_id', currentStudent.studentId);
         if (error) throw error;
         alert('삭제 완료');
         selectStudent(currentStudent.studentId, currentStudent.class, currentStudent.name);
@@ -480,7 +474,6 @@
 
     // init
     (async function init(){
-      // load course_capacity index if exists (optional)
       await loadCourseCapacities();
       await loadStudents();
 
